@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WAIH · Gestión operativa</title>
+<style>
+  :root { --azul:#1e40af; --azul-osc:#172f80; --fondo:#eef0f5; --texto:#1b2133; --suave:#5d667a; --borde:#d5d9e4; --error:#b42318; --ok:#067647; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--texto); background:var(--fondo); }
+  button,input,select { font:inherit; }
+  .hidden { display:none !important; }
+
+  /* Login */
+  #login { min-height:100vh; display:grid; place-items:center; padding:16px; }
+  .tarjeta { background:#fff; border:1px solid var(--borde); border-radius:8px; padding:24px; }
+  #login .tarjeta { width:100%; max-width:360px; }
+  h1,h2,h3 { margin:0 0 12px; line-height:1.25; }
+  h1 { font-size:22px; color:var(--azul); } h2 { font-size:19px; } h3 { font-size:16px; }
+
+  /* Layout app */
+  #app { display:flex; min-height:100vh; }
+  nav { width:210px; background:var(--azul); color:#fff; padding:20px 12px; display:flex; flex-direction:column; gap:4px; flex-shrink:0; }
+  nav .marca { font-weight:700; font-size:18px; padding:0 10px 16px; }
+  nav button { background:none; border:0; color:#dbe4ff; text-align:left; padding:10px; border-radius:6px; cursor:pointer; }
+  nav button:hover { background:var(--azul-osc); }
+  nav button.activo { background:#fff; color:var(--azul); font-weight:600; }
+  nav .salir { margin-top:auto; }
+  main { flex:1; padding:24px; min-width:0; }
+  @media (max-width:760px) {
+    #app { flex-direction:column; }
+    nav { width:100%; flex-direction:row; flex-wrap:wrap; padding:10px; }
+    nav .marca { width:100%; padding:0 6px 6px; } nav .salir { margin-top:0; }
+    main { padding:14px; }
+  }
+
+  /* Formularios */
+  label { display:block; font-weight:600; font-size:14px; margin-bottom:4px; }
+  input,select { width:100%; padding:9px 10px; border:1px solid var(--borde); border-radius:6px; background:#fff; }
+  input:focus,select:focus,button:focus-visible { outline:2px solid var(--azul); outline-offset:1px; }
+  .campo { margin-bottom:12px; }
+  .campo.invalido input,.campo.invalido select { border-color:var(--error); }
+  .msg-campo { color:var(--error); font-size:13px; margin-top:3px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:0 14px; }
+  .btn { background:var(--azul); color:#fff; border:0; border-radius:6px; padding:9px 16px; cursor:pointer; font-weight:600; }
+  .btn:hover { background:var(--azul-osc); }
+  .btn.sec { background:#fff; color:var(--texto); border:1px solid var(--borde); }
+  .btn.sec:hover { background:var(--fondo); }
+  .btn.peq { padding:5px 10px; font-size:13px; }
+  .btn.peligro { background:#fff; color:var(--error); border:1px solid var(--error); }
+  .acciones { display:flex; gap:8px; flex-wrap:wrap; }
+  .barra { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+
+  /* Tablas */
+  .tabla-wrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--borde); border-radius:8px; overflow:hidden; }
+  th,td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--borde); white-space:nowrap; }
+  th { background:#f6f7fb; font-size:13px; color:var(--suave); }
+  td.num,th.num { text-align:right; }
+  .vacio { padding:24px; text-align:center; color:var(--suave); }
+  .vence { color:var(--error); font-weight:600; }
+
+  /* Avisos */
+  #aviso { position:fixed; top:14px; right:14px; max-width:340px; padding:12px 16px; border-radius:6px; color:#fff; z-index:20; }
+  #aviso.ok { background:var(--ok); } #aviso.err { background:var(--error); }
+  .modal { position:fixed; inset:0; background:rgba(20,26,45,.45); display:grid; place-items:center; padding:16px; z-index:10; }
+  .modal .tarjeta { max-width:360px; width:100%; }
+  .kpi { font-size:26px; font-weight:700; color:var(--azul); }
+  .dos { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-top:16px; }
+</style>
+</head>
+<body>
+
+<div id="aviso" class="hidden" role="status"></div>
+
+<!-- LOGIN (RF-01) -->
+<section id="login">
+  <form class="tarjeta" id="form-login" novalidate>
+    <h1>WAIH</h1>
+    <p style="margin-top:0;color:var(--suave)">Ingresa con tu cédula y contraseña.</p>
+    <div class="campo"><label for="l-cedula">Cédula</label><input id="l-cedula" inputmode="numeric" autocomplete="username"></div>
+    <div class="campo"><label for="l-clave">Contraseña</label><input id="l-clave" type="password" autocomplete="current-password"></div>
+    <button class="btn" style="width:100%">Ingresar</button>
+  </form>
+</section>
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <nav id="menu"></nav>
+  <main id="vista"></main>
+</div>
+
+<script>
+/* ========= Configuración ========= */
+const API = 'http://localhost:3000/api';   // en producción: https://TU-API.onrender.com/api
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const cop = n => '$ ' + Number(n).toLocaleString('es-CO');
+let sesion = { token: localStorage.getItem('token'), rol: localStorage.getItem('rol') };
+
+function aviso(texto, tipo = 'ok') {
+  const a = $('#aviso'); a.textContent = texto; a.className = tipo;
+  clearTimeout(aviso.t); aviso.t = setTimeout(() => a.classList.add('hidden'), 4500);
+}
+
+async function api(ruta, metodo = 'GET', cuerpo) {
+  const res = await fetch(API + ruta, {
+    method: metodo,
+    headers: { 'Content-Type': 'application/json', ...(sesion.token ? { Authorization: 'Bearer ' + sesion.token } : {}) },
+    body: cuerpo ? JSON.stringify(cuerpo) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && sesion.token) { cerrarSesion(true); throw data; }
+  if (!res.ok) throw data;
+  return data;
+}
+
+/* ========= Formularios genéricos ========= */
+// campos: [{n:'nombre', l:'Etiqueta', t:'text', opciones:[[valor,texto]], soloCrear:true, ayuda:''}]
+function formHTML(campos, valores = {}, modoEdicion = false) {
+  return campos.filter(c => !(modoEdicion && c.soloCrear)).map(c => {
+    const v = valores[c.n] ?? '';
+    const ctrl = c.opciones
+      ? `<select id="f-${c.n}" name="${c.n}"><option value="">Seleccionar…</option>${c.opciones.map(([val, txt]) =>
+          `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(txt)}</option>`).join('')}</select>`
+      : `<input id="f-${c.n}" name="${c.n}" type="${c.t || 'text'}" value="${esc(v)}" ${c.m ? `inputmode="${c.m}"` : ''} ${modoEdicion && c.bloquear ? 'disabled' : ''} autocomplete="off">`;
+    return `<div class="campo" data-campo="${c.n}"><label for="f-${c.n}">${c.l}</label>${ctrl}${c.ayuda ? `<small style="color:var(--suave)">${c.ayuda}</small>` : ''}<div class="msg-campo"></div></div>`;
+  }).join('');
+}
+
+function leerForm(form) {
+  const d = {};
+  form.querySelectorAll('input,select').forEach(el => { if (!el.disabled) d[el.name] = el.value.trim(); });
+  return d;
+}
+
+function marcarErrores(form, campos = {}) {
+  form.querySelectorAll('.campo').forEach(c => { c.classList.remove('invalido'); c.querySelector('.msg-campo').textContent = ''; });
+  for (const [n, msg] of Object.entries(campos)) {
+    const c = form.querySelector(`[data-campo="${n}"]`);
+    if (c) { c.classList.add('invalido'); c.querySelector('.msg-campo').textContent = msg; }
+  }
+}
+
+function confirmar(texto, btn = 'Eliminar') {
+  return new Promise(ok => {
+    const m = document.createElement('div'); m.className = 'modal';
+    m.innerHTML = `<div class="tarjeta"><h3>${texto}</h3><div class="acciones"><button class="btn peligro" data-r="1">${btn}</button><button class="btn sec" data-r="0">Cancelar</button></div></div>`;
+    m.onclick = e => { const r = e.target.dataset.r; if (r !== undefined) { m.remove(); ok(r === '1'); } };
+    document.body.append(m);
+  });
+}
+
+/* ========= Sesión y menú (RF-01, RF-07, RF-08) ========= */
+$('#form-login').addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    const d = await api('/auth/login', 'POST', { cedula: $('#l-cedula').value.trim(), contrasena: $('#l-clave').value });
+    sesion = { token: d.token, rol: d.rol };
+    localStorage.setItem('token', d.token); localStorage.setItem('rol', d.rol);
+    $('#l-clave').value = '';
+    iniciarApp();
+  } catch (err) { aviso(err.error || 'No se pudo conectar con el servidor.', 'err'); }
+});
+
+async function cerrarSesion(forzado = false) {
+  if (!forzado && !(await confirmar('¿Quieres cerrar sesión?', 'Cerrar sesión'))) return;
+  localStorage.clear(); sesion = {};
+  $('#app').classList.add('hidden'); $('#login').classList.remove('hidden');
+  if (forzado) aviso('Tu sesión expiró. Inicia sesión de nuevo.', 'err');
+}
+
+const MENU = {
+  admin: [['empleados', 'Empleados'], ['vehiculos', 'Vehículos'], ['recibos', 'Recibos de viaje'], ['reportes', 'Reportes']],
+  conductor: [['registrar', 'Registrar recibo']],
+};
+const VISTAS = {};
+
+function iniciarApp() {
+  $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+  $('#menu').innerHTML = '<div class="marca">WAIH</div>' +
+    MENU[sesion.rol].map(([id, t]) => `<button data-v="${id}">${t}</button>`).join('') +
+    '<button class="salir" data-v="salir">Cerrar sesión</button>';
+  $('#menu').onclick = e => {
+    const v = e.target.dataset.v; if (!v) return;
+    v === 'salir' ? cerrarSesion() : ir(v);
+  };
+  ir(MENU[sesion.rol][0][0]);
+}
+
+function ir(id) {
+  document.querySelectorAll('#menu button').forEach(b => b.classList.toggle('activo', b.dataset.v === id));
+  VISTAS[id]();
+}
+
+/* ========= RF-02: Empleados ========= */
+const camposEmpleado = [
+  { n: 'cedula', l: 'Cédula', m: 'numeric', bloquear: true },
+  { n: 'nombre_completo', l: 'Nombre completo' },
+  { n: 'eps', l: 'EPS' },
+  { n: 'direccion', l: 'Dirección' },
+  { n: 'telefono_emergencia', l: 'Teléfono de emergencia (familiar)', m: 'numeric' },
+  { n: 'contrasena', l: 'Contraseña', t: 'password', ayuda: 'Mínimo 8 caracteres y una mayúscula.' },
+];
+
+VISTAS.empleados = async () => {
+  const lista = await api('/conductores');
+  $('#vista').innerHTML = `
+    <div class="barra"><h2>Empleados</h2><button class="btn" id="nuevo">Registrar empleado</button></div>
+    <div class="tabla-wrap"><table><thead><tr><th>Nombre</th><th>Cédula</th><th>EPS</th><th>Dirección</th><th>Tel. emergencia</th><th></th></tr></thead>
+    <tbody>${lista.map(c => `<tr><td>${esc(c.nombre_completo)}</td><td>${esc(c.cedula)}</td><td>${esc(c.eps)}</td><td>${esc(c.direccion)}</td><td>${esc(c.telefono_emergencia)}</td>
+      <td class="acciones"><button class="btn sec peq" data-e="${c.id_conductor}">Editar</button><button class="btn peligro peq" data-d="${c.id_conductor}">Eliminar</button></td></tr>`).join('')
+      || ''}</tbody></table>${lista.length ? '' : '<div class="vacio">Aún no hay empleados. Registra el primero.</div>'}</div>`;
+  $('#nuevo').onclick = () => formEmpleado();
+  $('#vista').onclick = async e => {
+    if (e.target.dataset.e) formEmpleado(lista.find(c => c.id_conductor == e.target.dataset.e));
+    if (e.target.dataset.d && await confirmar('¿Eliminar este empleado y su acceso?')) {
+      try { await api('/conductores/' + e.target.dataset.d, 'DELETE'); aviso('Empleado eliminado.'); VISTAS.empleados(); }
+      catch (err) { aviso(err.error, 'err'); }
+    }
+  };
+};
+
+function formEmpleado(c) {
+  const edit = !!c;
+  $('#vista').innerHTML = `<div class="tarjeta" style="max-width:640px"><h2>${edit ? 'Editar empleado' : 'Registrar empleado'}</h2>
+    <form novalidate><div class="grid">${formHTML(camposEmpleado.map(x => x.n === 'contrasena' && edit ? { ...x, l: 'Nueva contraseña (opcional)' } : x), c, false)}</div>
+    <div class="acciones"><button class="btn">Guardar</button><button type="button" class="btn sec" id="cancelar">Cancelar</button></div></form></div>`;
+  $('#cancelar').onclick = VISTAS.empleados;
+  $('#vista form').onsubmit = async e => {
+    e.preventDefault();
+    const d = leerForm(e.target);
+    try {
+      edit ? await api('/conductores/' + c.id_conductor, 'PUT', d) : await api('/conductores', 'POST', d);
+      aviso('Empleado guardado.'); VISTAS.empleados();
+    } catch (err) { marcarErrores(e.target, err.campos); aviso(err.error, 'err'); }
+  };
+}
+
+/* ========= RF-03: Vehículos ========= */
+const camposVehiculo = [
+  { n: 'placa', l: 'Placa', bloquear: true, ayuda: 'Formato ABC123' },
+  { n: 'modelo', l: 'Modelo' },
+  { n: 'soat', l: 'Vence SOAT', t: 'date' },
+  { n: 'tecnomecanica', l: 'Vence tecnomecánica', t: 'date' },
+  { n: 'fumigacion', l: 'Vence fumigación', t: 'date' },
+];
+const vencido = f => new Date(f) < new Date(new Date().toDateString());
+
+VISTAS.vehiculos = async () => {
+  const lista = await api('/vehiculos');
+  const f = fecha => `<td class="${vencido(fecha) ? 'vence' : ''}">${esc(fecha)}${vencido(fecha) ? ' (vencido)' : ''}</td>`;
+  $('#vista').innerHTML = `
+    <div class="barra"><h2>Vehículos</h2><button class="btn" id="nuevo">Registrar vehículo</button></div>
+    <div class="tabla-wrap"><table><thead><tr><th>Placa</th><th>Modelo</th><th>SOAT</th><th>Tecnomecánica</th><th>Fumigación</th><th></th></tr></thead>
+    <tbody>${lista.map(v => `<tr><td>${esc(v.placa)}</td><td>${esc(v.modelo)}</td>${f(v.soat)}${f(v.tecnomecanica)}${f(v.fumigacion)}
+      <td class="acciones"><button class="btn sec peq" data-e="${v.placa}">Editar</button><button class="btn peligro peq" data-d="${v.placa}">Eliminar</button></td></tr>`).join('')}</tbody></table>
+    ${lista.length ? '' : '<div class="vacio">Aún no hay vehículos. Registra el primero.</div>'}</div>`;
+  $('#nuevo').onclick = () => formVehiculo();
+  $('#vista').onclick = async e => {
+    if (e.target.dataset.e) formVehiculo(lista.find(v => v.placa === e.target.dataset.e));
+    if (e.target.dataset.d && await confirmar('¿Eliminar este vehículo?')) {
+      try { await api('/vehiculos/' + e.target.dataset.d, 'DELETE'); aviso('Vehículo eliminado.'); VISTAS.vehiculos(); }
+      catch (err) { aviso(err.error, 'err'); }
+    }
+  };
+};
+
+function formVehiculo(v) {
+  const edit = !!v;
+  $('#vista').innerHTML = `<div class="tarjeta" style="max-width:640px"><h2>${edit ? 'Editar vehículo' : 'Registrar vehículo'}</h2>
+    <form novalidate><div class="grid">${formHTML(camposVehiculo, v, edit)}</div>
+    <div class="acciones"><button class="btn">Guardar</button><button type="button" class="btn sec" id="cancelar">Cancelar</button></div></form></div>`;
+  $('#cancelar').onclick = VISTAS.vehiculos;
+  $('#vista form').onsubmit = async e => {
+    e.preventDefault();
+    const d = leerForm(e.target);
+    try {
+      edit ? await api('/vehiculos/' + v.placa, 'PUT', d) : await api('/vehiculos', 'POST', d);
+      aviso('Vehículo guardado.'); VISTAS.vehiculos();
+    } catch (err) { marcarErrores(e.target, err.campos); aviso(err.error, 'err'); }
+  };
+}
+
+/* ========= RF-04 / RF-05: Registro de recibos (conductor) ========= */
+async function camposRecibo() {
+  const [veh, cond] = await Promise.all([api('/vehiculos'), api('/conductores/lista')]);
+  return [
+    { n: 'num_recibo', l: 'Número de recibo', soloCrear: true },
+    { n: 'fecha', l: 'Fecha del viaje', t: 'date' },
+    { n: 'destino', l: 'Destino' },
+    { n: 'tipo_carga', l: 'Tipo de carga' },
+    { n: 'cantidad', l: 'Cantidad transportada', m: 'numeric', ayuda: 'Solo números, sin puntos.' },
+    { n: 'valor_viaje', l: 'Valor del viaje (COP)', m: 'numeric', ayuda: 'Solo números, sin puntos ni comas. Ej: 450000' },
+    { n: 'placa', l: 'Placa del vehículo', opciones: veh.map(v => [v.placa, v.placa]) },
+    { n: 'id_auxiliar', l: 'Auxiliar (si aplica)', opciones: cond.map(c => [c.id_conductor, c.nombre_completo]) },
+  ];
+}
+
+VISTAS.registrar = async () => {
+  const campos = await camposRecibo();
+  $('#vista').innerHTML = `<div class="tarjeta" style="max-width:700px"><h2>Registrar recibo de viaje</h2>
+    <form novalidate><div class="grid">${formHTML(campos)}</div><button class="btn">Guardar recibo</button></form></div>`;
+  $('#vista form').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const d = await api('/recibos', 'POST', leerForm(e.target));
+      aviso(d.mensaje); VISTAS.registrar();
+    } catch (err) { marcarErrores(e.target, err.campos); aviso(err.error, 'err'); }
+  };
+};
+
+/* ========= RF-06: Consulta de recibos (admin) ========= */
+VISTAS.recibos = async () => {
+  const [veh, cond] = await Promise.all([api('/vehiculos'), api('/conductores/lista')]);
+  $('#vista').innerHTML = `<h2>Recibos de viaje</h2>
+    <form class="tarjeta" id="filtros"><div class="grid">
+      <div class="campo"><label>Desde</label><input type="date" name="desde"></div>
+      <div class="campo"><label>Hasta</label><input type="date" name="hasta"></div>
+      <div class="campo"><label>Conductor</label><select name="id_conductor"><option value="">Todos</option>${cond.map(c => `<option value="${c.id_conductor}">${esc(c.nombre_completo)}</option>`).join('')}</select></div>
+      <div class="campo"><label>Vehículo</label><select name="placa"><option value="">Todos</option>${veh.map(v => `<option>${v.placa}</option>`).join('')}</select></div>
+    </div><button class="btn">Filtrar</button></form>
+    <div id="resultado" style="margin-top:16px"></div>`;
+  const cargar = async () => {
+    const q = new URLSearchParams(Object.entries(leerForm($('#filtros'))).filter(([, v]) => v)).toString();
+    const lista = await api('/recibos' + (q ? '?' + q : ''));
+    $('#resultado').innerHTML = lista.length ? `<div class="tabla-wrap"><table><thead><tr><th>Recibo</th><th>Fecha</th><th>Destino</th><th>Carga</th><th class="num">Cantidad</th><th class="num">Valor</th><th>Conductor</th><th>Auxiliar</th><th>Placa</th><th></th></tr></thead><tbody>
+      ${lista.map(r => `<tr><td>${esc(r.num_recibo)}</td><td>${esc(r.fecha)}</td><td>${esc(r.destino)}</td><td>${esc(r.tipo_carga)}</td><td class="num">${r.cantidad}</td><td class="num">${cop(r.valor_viaje)}</td>
+      <td>${esc(r.conductor)}</td><td>${esc(r.auxiliar || '—')}</td><td>${esc(r.placa)}</td>
+      <td class="acciones"><button class="btn sec peq" data-e="${esc(r.num_recibo)}">Editar</button><button class="btn peligro peq" data-d="${esc(r.num_recibo)}">Eliminar</button></td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="vacio tarjeta">No hay recibos con esos filtros.</div>';
+    $('#resultado').onclick = async e => {
+      if (e.target.dataset.e) formReciboAdmin(lista.find(r => r.num_recibo === e.target.dataset.e));
+      if (e.target.dataset.d && await confirmar('¿Eliminar este recibo?')) {
+        try { await api('/recibos/' + encodeURIComponent(e.target.dataset.d), 'DELETE'); aviso('Recibo eliminado.'); cargar(); }
+        catch (err) { aviso(err.error, 'err'); }
+      }
+    };
+  };
+  $('#filtros').onsubmit = e => { e.preventDefault(); cargar(); };
+  cargar();
+};
+
+async function formReciboAdmin(r) {
+  const campos = await camposRecibo();
+  $('#vista').innerHTML = `<div class="tarjeta" style="max-width:700px"><h2>Editar recibo ${esc(r.num_recibo)}</h2>
+    <form novalidate><div class="grid">${formHTML(campos, r, true)}</div>
+    <div class="acciones"><button class="btn">Guardar cambios</button><button type="button" class="btn sec" id="cancelar">Cancelar</button></div></form></div>`;
+  $('#cancelar').onclick = VISTAS.recibos;
+  $('#vista form').onsubmit = async e => {
+    e.preventDefault();
+    try { await api('/recibos/' + encodeURIComponent(r.num_recibo), 'PUT', leerForm(e.target)); aviso('Recibo actualizado.'); VISTAS.recibos(); }
+    catch (err) { marcarErrores(e.target, err.campos); aviso(err.error, 'err'); }
+  };
+}
+
+/* ========= Reportes básicos (admin) ========= */
+VISTAS.reportes = async () => {
+  $('#vista').innerHTML = `<h2>Reportes de facturación</h2>
+    <form class="tarjeta" id="rf"><div class="grid">
+      <div class="campo"><label>Desde</label><input type="date" name="desde"></div>
+      <div class="campo"><label>Hasta</label><input type="date" name="hasta"></div></div>
+      <button class="btn">Generar reporte</button></form><div id="rep" style="margin-top:16px"></div>`;
+  const generar = async () => {
+    const q = new URLSearchParams(Object.entries(leerForm($('#rf'))).filter(([, v]) => v)).toString();
+    const d = await api('/reportes/facturacion' + (q ? '?' + q : ''));
+    const tabla = (titulo, filas, col) => `<div><h3>${titulo}</h3><div class="tabla-wrap"><table><thead><tr><th>${col[0]}</th><th class="num">Viajes</th><th class="num">Total</th></tr></thead><tbody>
+      ${filas.map(f => `<tr><td>${esc(f[col[1]])}</td><td class="num">${f.viajes}</td><td class="num">${cop(f.total)}</td></tr>`).join('') || '<tr><td colspan="3" class="vacio">Sin datos</td></tr>'}</tbody></table></div></div>`;
+    $('#rep').innerHTML = `<div class="tarjeta"><div>Total facturado</div><div class="kpi">${cop(d.total.total)}</div><div style="color:var(--suave)">${d.total.viajes} viajes</div></div>
+      <div class="dos">${tabla('Por vehículo', d.porVehiculo, ['Placa', 'placa'])}${tabla('Por conductor', d.porConductor, ['Conductor', 'conductor'])}</div>`;
+  };
+  $('#rf').onsubmit = e => { e.preventDefault(); generar(); };
+  generar();
+};
+
+/* ========= Arranque ========= */
+if (sesion.token && sesion.rol) iniciarApp();
+</script>
+</body>
+</html>
